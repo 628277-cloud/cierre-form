@@ -26,10 +26,13 @@
   }
 
   // '#...' или просто строка base64url -> данные или null (без исключений).
+  // Telegram при открытии дописывает в «#» свои параметры: '#<b64>?tgWebAppData=…&tgWebAppVersion=…'
+  // (urlAppendHashParams в telegram-web-app.js) — данные формы только до первого '?' или '&'.
   function decodeHash(hash) {
     try {
       var s = String(hash || '');
       if (s.charAt(0) === '#') s = s.slice(1);
+      s = s.split(/[?&]/)[0];
       if (!s) return null;
       s = s.replace(/-/g, '+').replace(/_/g, '/');
       while (s.length % 4) s += '=';
