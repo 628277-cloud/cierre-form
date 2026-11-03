@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Что приехало?</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root {
+  --bg: var(--tg-theme-bg-color, #17212B);
+  --card: var(--tg-theme-secondary-bg-color, #232E3C);
+  --text: var(--tg-theme-text-color, #F5F5F5);
+  --hint: var(--tg-theme-hint-color, #8B9AAB);
+  --link: var(--tg-theme-link-color, #6AB3F3);
+  --step: #2F3B4A;
+  --line: rgba(128, 144, 160, .22);
+  --warn: #FFA45C;
+  --brand: #FFD951;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+#app { display: flex; flex-direction: column; min-height: 100vh; }
+header { padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 4px; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; }
+.hint { color: var(--hint); font-size: 14px; }
+.empty { padding: 32px 16px; text-align: center; color: var(--hint); font-size: 16px; }
+#groups { display: flex; flex-direction: column; gap: 12px; padding: 8px 12px; }
+.card { background: var(--card); border-radius: 14px; overflow: hidden; }
+.card-head { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.card-head b { font-size: 16px; }
+.card-head span { color: var(--hint); font-size: 13px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.name { font-size: 15px; line-height: 1.25; overflow-wrap: anywhere; }
+.onhand { color: var(--hint); font-size: 13px; }
+.note { font-size: 13px; font-weight: 600; }
+.note.left { color: var(--brand); }
+.note.over { color: var(--warn); }
+.ctl { display: flex; align-items: center; gap: 6px; flex: none; }
+.st { width: 44px; height: 44px; border-radius: 10px; border: 0; background: var(--step); color: #F5F5F5;
+  font: 600 22px/1 -apple-system, sans-serif; cursor: pointer; padding: 0; }
+.st:active { filter: brightness(1.25); }
+.inp { width: 64px; height: 44px; border-radius: 10px; border: 1px solid #3A4859; background: transparent;
+  color: var(--text); text-align: center; font: 600 17px/1 -apple-system, sans-serif; padding: 0; }
+.inp.has { border-color: var(--link); }
+.inp.over { border: 2px solid var(--warn); }
+.inp:focus { outline: 2px solid var(--link); outline-offset: 1px; }
+.inp::placeholder { color: #6F7F91; }
+.spacer { flex-grow: 1; }
+footer { padding: 12px 12px 20px; display: flex; flex-direction: column; gap: 8px; position: sticky; bottom: 0; background: var(--bg); }
+#foot { color: var(--hint); font-size: 13px; text-align: center; }
+#main { width: 100%; min-height: 52px; border: 0; border-radius: 12px; background: var(--brand); color: #000;
+  font: 700 16px/1.2 -apple-system, sans-serif; cursor: pointer; }
+#main:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="form.js"></script>
+<script>
+(function () {
+  'use strict';
+  var F = window.CierreForm;
+  var tg = (window.Telegram && window.Telegram.WebApp) || null;
+  var app = document.getElementById('app');
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // Тема Telegram -> CSS-переменные (запас цветов — в :root).
+  function applyTheme() {
+    if (!tg || !tg.themeParams) return;
+    var p = tg.themeParams, s = document.documentElement.style;
+    if (p.bg_color) s.setProperty('--tg-theme-bg-color', p.bg_color);
+    if (p.secondary_bg_color) s.setProperty('--tg-theme-secondary-bg-color', p.secondary_bg_color);
+    if (p.text_color) s.setProperty('--tg-theme-text-color', p.text_color);
+    if (p.hint_color) s.setProperty('--tg-theme-hint-color', p.hint_color);
+    if (p.link_color) s.setProperty('--tg-theme-link-color', p.link_color);
+  }
+
+  function showStub() {
+    app.textContent = '';
+    var header = el('header');
+    header.appendChild(el('h1', '', 'Что приехало?'));
+    app.appendChild(header);
+    app.appendChild(el('div', 'empty', 'Открой форму кнопкой в боте'));
+  }
+
+  function submit(data, vals) {
+    var payload = F.answer(data, vals);
+    if (tg && typeof tg.sendData === 'function') tg.sendData(payload);
+    else console.log('Ответ формы (вне Telegram):', payload);
+  }
+
+  function build(data) {
+    var vals = {};
+    var refs = []; // по строкам: {num, onhand, input, note}
+    var groupRefs = [];
+    app.textContent = '';
+
+    var header = el('header');
+    header.appendChild(el('h1', '', 'Что приехало?'));
+    header.appendChild(el('span', 'hint', (data.c || '') + (data.d ? ' · забрали ' + data.d : '')));
+    header.appendChild(el('span', 'hint', 'Внеси, сколько штук приехало. С «на руках» сверять не нужно: разницу бот посчитает сам.'));
+    app.appendChild(header);
+
+    var groups = el('div');
+    groups.id = 'groups';
+    data.g.forEach(function (g) {
+      var card = el('div', 'card');
+      var head = el('div', 'card-head');
+      head.appendChild(el('b', '', g[0]));
+      var summary = el('span', '', '');
+      head.appendChild(summary);
+      card.appendChild(head);
+      groupRefs.push({ items: g[1], summary: summary });
+      g[1].forEach(function (it) {
+        var num = it[0], onhand = it[2];
+        var row = el('div', 'row');
+        var info = el('div', 'info');
+        info.appendChild(el('span', 'name', it[1]));
+        info.appendChild(el('span', 'onhand', 'на руках ' + onhand));
+        var note = el('span', 'note');
+        note.hidden = true;
+        info.appendChild(note);
+        var ctl = el('div', 'ctl');
+        var dec = el('button', 'st', '−');
+        dec.type = 'button';
+        dec.setAttribute('aria-label', 'Меньше');
+        var input = el('input', 'inp');
+        input.type = 'text';
+        input.setAttribute('inputmode', 'numeric');
+        input.setAttribute('pattern', '[0-9]*');
+        input.setAttribute('placeholder', '0');
+        input.setAttribute('aria-label', 'Приехало: ' + it[1]);
+        var inc = el('button', 'st', '+');
+        inc.type = 'button';
+        inc.setAttribute('aria-label', 'Больше');
+        ctl.appendChild(dec); ctl.appendChild(input); ctl.appendChild(inc);
+        row.appendChild(info); row.appendChild(ctl);
+        card.appendChild(row);
+        var ref = { num: num, onhand: onhand, input: input, note: note };
+        refs.push(ref);
+        function set(v, fromInput) {
+          vals[num] = v;
+          if (!fromInput) input.value = v > 0 ? String(v) : '';
+          refresh();
+        }
+        input.addEventListener('input', function () {
+          var v = F.parseCount(input.value);
+          var clean = v > 0 ? String(v) : '';
+          // «0» оставляем как есть, пока человек печатает; прочее приводим к цифрам
+          if (input.value !== clean && !/^0+$/.test(input.value)) input.value = clean;
+          set(v, true);
+        });
+        dec.addEventListener('click', function () { set(Math.max(0, (vals[num] || 0) - 1)); });
+        inc.addEventListener('click', function () { set(Math.min(99999, (vals[num] || 0) + 1)); });
+      });
+      groups.appendChild(card);
+    });
+    app.appendChild(groups);
+    app.appendChild(el('div', 'spacer'));
+
+    var footer = el('footer');
+    var foot = el('span');
+    foot.id = 'foot';
+    var main = el('button', '');
+    main.id = 'main';
+    main.type = 'button';
+    footer.appendChild(foot); footer.appendChild(main);
+    app.appendChild(footer);
+
+    main.addEventListener('click', function () {
+      if (!main.disabled) submit(data, vals);
+    });
+
+    function refresh() {
+      refs.forEach(function (r) {
+        var v = vals[r.num] || 0;
+        var n = F.noteFor(r.onhand, v);
+        r.note.hidden = n.kind === 'none';
+        r.note.textContent = n.text;
+        r.note.className = 'note ' + n.kind;
+        r.input.className = 'inp' + (n.kind === 'over' ? ' over' : (v > 0 ? ' has' : ''));
+      });
+      groupRefs.forEach(function (g) { g.summary.textContent = F.groupSummary(g.items, vals); });
+      foot.textContent = F.footLine(data, vals);
+      main.textContent = F.mainText(data, vals);
+      main.disabled = F.totals(data, vals).entered === 0;
+    }
+    refresh();
+  }
+
+  if (tg) {
+    try { applyTheme(); tg.ready(); tg.expand(); } catch (e) { /* вне Telegram — не страшно */ }
+  }
+  var data = F.decodeHash(window.location.hash);
+  if (data) build(data); else showStub();
+})();
+</script>
+</body>
+</html>
